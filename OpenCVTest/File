@@ -1,0 +1,424 @@
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/highgui/highgui.hpp"
+#include <iostream>
+#include <fstream>
+#include <string>
+#include "opencv2/ml.hpp"
+using namespace cv;
+using namespace std;
+using namespace cv::ml;
+
+#define BINS 9                  //No. of columns in the histogram.
+#define CELL_SIZE 8             // Cellsize px x cellsize px form one cell.
+#define PATCH_WIDTH 64
+#define PATCH_HEIGHT 128        // 64 X 128 IMAGE PATCH
+#define ROWS_CELLTABLE PATCH_HEIGHT/CELL_SIZE //No. of rows in a cell table eg. 128 / 8 = 16
+#define COLS_CELLTABLE PATCH_WIDTH/CELL_SIZE //No. of cols in a cell table ex. 64 / 8 = 8
+#define SHIFT_PATCH 8 // SHIFT THE PATCH IN X AND Y BY ___ pixels
+#define RESIZE_PATCH 0.80 // 80% of the original image
+#define BLOCK_SIZE 2 // _ x _ no. of cell in a block
+
+void writeToFile(vector<vector<vector<double>>> feature)
+{
+int x=1;
+std::ofstream outfile;
+string line ="+1 ";
+outfile.open("test.txt", std::ios_base::app);
+for (int i = 0; i < feature.size(); i++)
+{
+for (int j = 0; j < feature[i].size(); j++)
+{
+for (int k=0; k< feature[i][j].size();k++)
+{
+if(feature[i][j][k]!=0)
+line+=to_string(x)+":"+to_string(feature[i][j][k])+" ";
+x++;
+}
+}
+}
+outfile<<line<<endl;
+}
+
+/*
+* Function returns a 3D Vector with the values of all cell histograms.
+* The first two dimensions are to navigate throught the cell table.
+* The third dimesion is a vector with the magnitude for the respective bin values
+*/
+vector<vector<vector<double>>> cellHistograms(Mat magnitude, Mat angle)
+{
+vector< vector<vector<double>>> cellHist(ROWS_CELLTABLE,vector<vector<double>>(COLS_CELLTABLE, vector<double>(BINS)));
+int n=-1,m=-1;
+for(int a=0; a<PATCH_HEIGHT; a+=CELL_SIZE)
+{
+m++;
+n=-1;
+for (int b=0; b<PATCH_WIDTH; b+=CELL_SIZE)
+{
+Mat magCell=magnitude.rowRange(a, a+CELL_SIZE).colRange(b, b+CELL_SIZE);
+Mat angCell=angle.rowRange(a,a+CELL_SIZE).colRange(b, b+CELL_SIZE);
+n++;
+for (int i=0; i<angCell.rows; i++)
+{
+for (int j=0; j<angCell.cols; j++)
+{
+float colNumber= angCell.at<float>(i,j);
+colNumber/=20;
+colNumber=int(colNumber);
+
+if(colNumber==9)                    // When angle is 180. 180/20 is 9 which is a unique case.
+colNumber=8;
+cellHist[m][n][colNumber]+=magCell.at<float>(i,j);
+}
+}
+}
+}
+return cellHist;
+}
+
+/*
+* Calculates the normalization value and returns it.
+* Method : L2 Normalisation
+*/
+double normalization(vector<int> blockHist)
+{
+double norm=0.0;
+for (int i=0; i<blockHist.size(); i++)
+{
+//blockHist[i]=blockHist[i]/4; not sure why
+norm+=blockHist[i]*blockHist[i];
+}
+
+return sqrt(norm);
+}
+
+/*
+* Forms blocks and uses the blocks to normalise all cell histograms within the block.
+* Blocks are overlapping.
+*/
+void blockNormalisation(vector<vector<vector<double>>> before)
+{
+vector<vector<vector<double>>> mean(ROWS_CELLTABLE,vector<vector<double>>(COLS_CELLTABLE, vector<double>(BINS)));
+
+for (int i = 0; i < mean.size(); i++)
+{
+for (int j = 0; j < mean[i].size(); j++)
+{
+for (int k=0; k< mean[i][j].size();k++)
+{
+mean[i][j][k]=0;
+}
+}
+}
+
+vector<vector<vector<double>>> after(ROWS_CELLTABLE,vector<vector<double>>(COLS_CELLTABLE, vector<double>(BINS)));
+copy(before.begin(), before.end(), after.begin());
+//    cout<<before[1][3][7]<<endl;
+//    cout<<after[1][3][7]<<endl;
+
+for (int i =0; i<ROWS_CELLTABLE-1; i++)
+{
+for (int j=0; j<COLS_CELLTABLE-1; j++)
+{
+vector<int> blockHist (BINS);
+for(int a=i; a<i+BLOCK_SIZE; a++)
+{
+for (int b=j; b<j+BLOCK_SIZE; b++)
+{
+for (int c=0; c<BINS; c++)
+{
+blockHist[c]+=before[a][b][c];
+}
+}
+}
+
+double norm = normalization(blockHist);
+for (int a=i; a<=i+1; a++)
+{
+for (int b=j; b<=j+1; b++)
+{
+for (int c=0; c<BINS; c++)
+{
+if(after[a][b][c]==before[a][b][c]) // NOT BEEN NORMALISED BEFORE
+{
+after[a][b][c]=before[a][b][c]/norm;
+mean[a][b][c]++;
+}
+else                                // HAS BEEN NORMALISED HENCE HAVE TO TAKE MEAN
+{
+//double temp = before[a][b][c]/norm;
+//after[a][b][c]=(after[a][b][c] + temp)/2;
+double temp= after[a][b][c]*mean[a][b][c];
+after[a][b][c]=((before[a][b][c]/norm) + temp)/(mean[a][b][c]+1);
+mean[a][b][c]++;
+}
+}
+
+}
+}
+}
+}
+int x=1;
+for (int i = 0; i < after.size(); i++)
+{
+for (int j = 0; j < after[i].size(); j++)
+{
+for (int k=0; k< after[i][j].size();k++)
+{
+if(after[i][j][k]!=0)
+cout<<x<<":"<<after[i][j][k]<<" ";
+x++;
+}
+}
+}
+writeToFile(after);
+cout<<endl;
+//Do Something with after
+}
+
+/*
+* Recieves an image and converts it to gray scale.
+* Calculates gradients in the x and y direction.
+* Using the gradients, it calculates magnitude and direction.
+* It calls cellhistograms function and sends the value for BlockNormalisation.
+*/
+Mat calculateGradients( Mat src)
+{
+Mat src_gray; // Grayed image
+Mat grad; // Gradient image
+
+
+const char* window_name = "Gradient calculations";
+/// Create window
+namedWindow( window_name, WINDOW_AUTOSIZE );
+
+
+int scale = 1;
+int delta = 0;
+int ddepth = CV_32F;
+
+// GaussianBlur( src, src, Size(3,3), 0, 0, BORDER_DEFAULT );
+// Try while checking results
+
+
+
+// Convert it to gray
+cvtColor( src, src_gray, COLOR_RGB2GRAY );
+
+// Generate grad_x and grad_y
+Mat grad_x, grad_y;
+Mat abs_grad_x, abs_grad_y;
+Mat magnitude;
+Mat angle;
+
+// Gradient X
+//Scharr( src_gray, grad_x, ddepth, 1, 0, scale, delta, BORDER_DEFAULT );
+Sobel( src_gray, grad_x, ddepth, 1, 0, 3, scale, delta, BORDER_DEFAULT );
+convertScaleAbs( grad_x, abs_grad_x );
+
+// Gradient Y
+//Scharr( src_gray, grad_y, ddepth, 0, 1, scale, delta, BORDER_DEFAULT );
+Sobel( src_gray, grad_y, ddepth, 0, 1, 3, scale, delta, BORDER_DEFAULT );
+convertScaleAbs( grad_y, abs_grad_y );
+
+/// Total Gradient (approximate)
+addWeighted( abs_grad_x, 0.5, abs_grad_y, 0.5, 0, grad );
+
+//cout<<"grad "<<grad<<endl;
+
+cartToPolar(grad_x, grad_y, magnitude, angle, true);
+
+for (int i=0; i<angle.rows; i++) {
+for (int j=0; j<angle.cols; j++) {
+//cout<<magnitude.at<float>(i, j)<<"  ";
+if(angle.at<float>(i,j)>180)
+angle.at<float>(i,j)-=180;
+}
+}
+//cout<<"Src "<<src<<endl;
+//cout<<"gradx"<<grad_x<<endl;
+//cout<<"grady"<<grad_y<<endl;
+//cout<<"angle"<<angle<<endl;
+
+//imshow( window_name, grad );
+blockNormalisation(cellHistograms(magnitude,angle));
+
+//! [wait]
+//waitKey(0); // Wait for a keystroke in the window
+//! [wait]
+return grad;
+}
+
+/*
+* Read the file name and returns an image mat file
+*/
+Mat readImage(string filename)
+{
+Mat src; // Source Image
+
+string imageName(filename); // by default
+
+src = imread(imageName.c_str(), IMREAD_COLOR); // Read the file
+
+if( src.empty() )   // Check for invalid input
+{
+cout <<  "Could not open or find the image" << endl ;
+}
+return src;
+}
+
+/*
+* TESTING PURPOSE
+* If image size is greater than the patch. It iterates through the image patch by patch.
+* Also rescales the image to search again.
+*/
+void patchSelection(Mat src)
+{
+while (src.rows>=PATCH_HEIGHT && src.cols>=PATCH_WIDTH)
+{
+for (int i=PATCH_HEIGHT; i<=src.rows; i+=SHIFT_PATCH)
+{
+for (int j=PATCH_WIDTH; j<=src.cols; j+=SHIFT_PATCH)
+{
+Mat patch =src.rowRange(i-PATCH_HEIGHT, i).colRange(j-PATCH_WIDTH, j);
+calculateGradients(patch);
+}
+}
+resize(src, src, Size(),RESIZE_PATCH , RESIZE_PATCH);
+}
+}
+
+/*
+* TRAINING PURPOSE.
+* Returns an image in the correct patch size.
+*
+*/
+void fixDimension(double x1, double y1, double x2, double y2, string filename)
+{
+double extraWidth=0;
+double extraHeight=0;
+double width = x2-x1;
+double height = y2-y1;
+if(width <= height/2)
+{
+extraWidth=((height/2)-width)/2;
+width=height/2;
+}
+else
+{
+extraHeight=(width*2-height)/2;
+height=width*2;
+}
+Mat src = readImage("data_object_image_2/training/image_2/"+filename+".png");
+if(x1-extraWidth+width>src.cols)
+{
+double temp=x1-extraWidth+width-src.cols;
+extraWidth+=temp;
+}
+if(x1-extraWidth<0)
+{
+x1=0;
+extraWidth=0;
+}
+if (y1-extraHeight+height>src.rows)
+{
+double temp=y1-extraHeight+height-src.rows;
+extraHeight+=temp;
+}
+if(y1-extraHeight<0)
+{
+y1=0;
+extraHeight=0;
+}
+
+if(x1-extraWidth+width> src.cols)
+width=src.cols-(x1-extraWidth);
+if(y1-extraHeight+height>src.rows)
+height=src.rows-(y1-extraHeight);
+
+Rect myROI(x1-extraWidth, y1-extraHeight, width, height);
+Mat croppedImage = src(myROI);
+Size size(PATCH_WIDTH,PATCH_HEIGHT);//the dst image size,e.g.100x100
+Mat resizedImage;//dst image
+resize(croppedImage,resizedImage,size);//resize image
+
+patchSelection(resizedImage);
+//    string window_name = ""+filename;
+//    /// Create window
+//    namedWindow( window_name, WINDOW_AUTOSIZE );
+//    imshow( window_name, resizedImage );
+//    imwrite("cropped.jpg", croppedImage);
+//    imwrite("resized.jpg", resizedImage);
+//    waitKey(0); // Wait for a keystroke in the window
+}
+/*
+* TRAINING PURPOSE.
+* Function runs through the label files and detects the word pedestrian.
+* On detection, it gets the coordinates for the rectangle frame in which the pedestrian can be found.
+* This coordinates are then sent to fixDimension to scale it into the needed size.
+*/
+void searchForPedestrian()
+{
+int count=0;
+for (int i=0; i<7480; i++) //Refers to the number of text files or labels.
+{
+
+// Filename making using the loop counter.
+string filename="00";
+if(i<10)
+filename+="000"+to_string(i);
+else if (i<100)
+filename+="00"+to_string(i);
+else if (i<1000)
+filename+="0"+to_string(i);
+else if (i<10000)
+filename+=to_string(i);
+
+// Opening the file.
+ifstream myfile ("training/label_2/"+filename+".txt");
+if (myfile.is_open())
+{
+//Fetching line by line from the file
+string line;
+while ( getline (myfile,line) )
+{
+stringstream ss(line);
+string word;
+
+//Recieve token by token from each line
+while(ss>>word)
+{
+if (word.compare("Pedestrian")==0)
+{
+count++;
+double x1 , x2 , y1, y2;
+ss>>x1;
+ss>>x1;
+ss>>x1;
+
+
+//Reading tokens into coordinates.
+ss>>x1;
+ss>>y1;
+ss>>x2;
+ss>>y2;
+
+//Getting Image
+fixDimension(x1,y1,x2,y2,filename);
+}
+else
+break;
+}
+cout<<count<<endl;
+}
+}
+}
+}
+
+int main()
+{
+//    Mat src= readImage("1.jpg");
+//    patchSelection(src);
+searchForPedestrian();
+cout<<"FINISHED"<<endl;
+}
