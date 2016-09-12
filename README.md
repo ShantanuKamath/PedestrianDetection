@@ -1,2 +1,2 @@
 # HumanDetection
-n application that can process images, detect and classify pedestrians in real driving situations. It is to be integrated in the latest BMW i8 and i3 hybrid vehicles.
+Built an application that can process images, detect and classify pedestrians in real driving situations. Implemented Histograms of Oriented Gradients (HOG) Descriptors from scratch in C++ using OpenCV and Linear Support Vector Machines (L-SVM) classifiers.
