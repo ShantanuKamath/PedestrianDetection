@@ -7,5 +7,7 @@ The algorithm developed was implemented from scratch with the adoption of [Histo
 This application was used again with Android NDK to use it in a native android application.  
 
 # Results 
-![Singular](https://github.com/ShantanuKamath/HumanDetection/Images/singles.jpg)
-![Large Scene](https://github.com/ShantanuKamath/HumanDetection/Images/scene.jpg)
+![Singular](https://github.com/ShantanuKamath/HumanDetection/blob/master/Images/single.jpg)
+
+
+![Large Scene](https://github.com/ShantanuKamath/HumanDetection/blob/master/Images/scene.jpg)
