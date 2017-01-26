@@ -8,7 +8,6 @@
 #include "opencv2/ml.hpp"
 #include "../LibLinear/linear.h"
 #include "../LibLinear/linear.cpp"
-#include "../LibLinear/tron.h"
 using namespace cv;
 using namespace std;
 using namespace cv::ml;
@@ -828,8 +827,8 @@ int main()
     //    NegativeImageCalc();
     //    trainAndSaveModel();
     //    detectInCompressions
-    String inFilename= "20150803135823.jpg";
-    String outFilename= "20150803135823_1.jpg";
+    String inFilename= "1.jpg";
+    String outFilename= "IMG_4728_1.JPG";
     predictWithModel(inFilename);
     Mat orginal=readImage(inFilename);
     int x=1;
@@ -841,9 +840,9 @@ int main()
         pq.pop();
         cout<<r.decision<<endl;
         rectangle(orginal, r.r, Scalar(26,98,26));
-        //            namedWindow( window_name, WINDOW_AUTOSIZE );
-        //            imshow( window_name, orginal);
-        //            waitKey(0); // Wait
+                    namedWindow( window_name, WINDOW_AUTOSIZE );
+                    imshow( window_name, orginal);
+                    waitKey(0); // Wait
         // Blah
         x++;
     }
